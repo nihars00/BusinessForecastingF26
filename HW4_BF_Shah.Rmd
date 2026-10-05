@@ -1,0 +1,146 @@
+---
+title: "Airline Passenger Forecasts"
+author: "Nihar Shah"
+date: "October 4, 2026"
+output: html_document
+---
+
+## Data
+
+I used monthly U.S. domestic airline passenger boardings from January 2000 to May 2026. The data are in thousands and are not seasonally adjusted. For example, 70,000 means 70 million boardings.
+
+
+```{r}
+library(forecast)
+
+airline_data <- read.csv("us_domestic_airline_enplanements_monthly.csv")
+passengers <- ts(airline_data$ENPLANED, start = c(2000, 1), frequency = 12)
+plot(passengers, ylab = "Thousands of boardings", xlab = "Year")
+```
+
+There is a seasonal pattern and a large drop in 2020. Passenger boardings increased again after the pandemic.
+
+## Models
+
+I used data through December 2025 to fit the models. I saved January to May 2026 to check the five-month forecasts against actual values.
+
+```{r}
+train <- window(passengers, end = c(2025, 12))
+test <- window(passengers, start = c(2026, 1))
+
+mean_forecast <- meanf(train, 5)
+naive_forecast <- naive(train, 5)
+rwf_forecast <- rwf(train, 5)
+drift_forecast <- rwf(train, 5, drift = TRUE)
+snaive_forecast <- snaive(train, 5)
+```
+
+Mean uses the average of the training data. Naive repeats the last observation. Random walk without drift gives the same result as naive. Drift adds the average historical change. Seasonal naive repeats the same month from the previous year.
+
+```{r}
+MA5 <- ma(train, order = 5)
+MA9 <- ma(train, order = 9)
+
+plot(window(train, start = c(2022, 1)), ylab = "Thousands of boardings")
+lines(MA5, col = "red")
+lines(MA9, col = "blue")
+legend("bottomleft", c("Actual", "MA5", "MA9"),
+       col = c("black", "red", "blue"), lty = 1, bty = "n")
+```
+
+The 9-month moving average is smoother. These moving averages smooth past data rather than forecast future months, so I did not use them in the accuracy comparison.
+
+```{r}
+SSE_Simple <- HoltWinters(train, beta = FALSE, gamma = FALSE)
+SSE_Trend <- HoltWinters(train, gamma = FALSE)
+SSE_Winters <- HoltWinters(train)
+ets_model <- ets(train)
+
+simple_forecast <- forecast(SSE_Simple, 5)
+trend_forecast <- forecast(SSE_Trend, 5)
+winters_forecast <- forecast(SSE_Winters, 5)
+ets_forecast <- forecast(ets_model, 5)
+```
+
+Simple smoothing uses a level. Holt adds a trend. Holt-Winters uses level, trend, and seasonality. ETS chooses a model automatically using AICc.
+
+## Model output
+
+```{r}
+SSE_Simple
+SSE_Trend
+SSE_Winters
+```
+
+Alpha controls level updates, beta controls trend updates, and gamma controls seasonal updates. Larger values give more weight to new information. `FALSE` means that component is not used.
+
+Simple smoothing and Holt have alpha above 0.8, so their levels change quickly. Holt-Winters has alpha near 1, a small beta, and gamma near 0. Its level changes quickly, but its trend and seasonal pattern change slowly.
+
+```{r}
+SSE_Simple$SSE
+SSE_Trend$SSE
+SSE_Winters$SSE
+```
+
+SSE is the sum of squared training errors. Holt-Winters has the lowest SSE here, but this does not mean it will forecast best. I compare forecasts on the same test months below.
+
+```{r}
+ets_model
+snaive_forecast
+```
+
+ETS selected `ETS(A,N,A)`: additive errors, no trend, and additive seasonality. Its alpha is close to 1 and gamma is small. The initial states are starting values used to fit the model. Sigma measures residual variation. AIC, AICc, and BIC measure fit while allowing for model complexity.
+
+The seasonal naive output shows the forecasts for January to May 2026. The point forecast is the predicted number of boardings in thousands. The lower and upper columns are prediction intervals. The 95% interval is wider than the 80% interval because it allows for more uncertainty.
+
+## Forecast chart
+
+This chart shows actual values and all model forecasts. The dotted vertical line separates the training and test data. Naive and random walk overlap.
+
+```{r}
+plot(window(passengers, start = c(2024, 1)), ylim = c(50000, 85000),
+     main = "Actual values and forecasts", ylab = "Thousands of boardings")
+abline(v = 2026 - 1/24, col = "grey", lty = 3)
+lines(mean_forecast$mean, col = "brown")
+lines(naive_forecast$mean, col = "red")
+lines(rwf_forecast$mean, col = "red")
+lines(drift_forecast$mean, col = "orange", lty = 2)
+lines(snaive_forecast$mean, col = "darkgreen")
+lines(simple_forecast$mean, col = "deeppink", lty = 2)
+lines(trend_forecast$mean, col = "deepskyblue3", lty = 3)
+lines(winters_forecast$mean, col = "blue")
+lines(ets_forecast$mean, col = "purple", lty = 2)
+legend("bottomleft",
+       c("Actual", "Mean", "Naive / RW", "Drift", "Seasonal naive",
+         "Simple", "Holt", "Holt-Winters", "ETS"),
+       col = c("black", "brown", "red", "orange", "darkgreen",
+               "deeppink", "deepskyblue3", "blue", "purple"),
+       lty = c(1, 1, 1, 2, 1, 2, 3, 1, 2), ncol = 2, bty = "n")
+```
+
+## Accuracy
+
+I chose SSE (sum of squared errors), which we used in class. It adds up the squared differences between actual and forecast values. Lower SSE is better. I calculate it for January to May 2026 for every model so they are compared over the same months. Its units are squared thousands of boardings.
+
+```{r}
+results <- data.frame(
+  Model = c("Mean", "Naive", "Random walk", "Drift", "Seasonal naive",
+            "Simple", "Holt", "Holt-Winters", "ETS"),
+  SSE = c(
+    sum((test - mean_forecast$mean)^2),
+    sum((test - naive_forecast$mean)^2),
+    sum((test - rwf_forecast$mean)^2),
+    sum((test - drift_forecast$mean)^2),
+    sum((test - snaive_forecast$mean)^2),
+    sum((test - simple_forecast$mean)^2),
+    sum((test - trend_forecast$mean)^2),
+    sum((test - winters_forecast$mean)^2),
+    sum((test - ets_forecast$mean)^2)
+  )
+)
+results
+```
+
+Seasonal naive is the best model in this comparison, with the lowest test SSE of `r format(round(min(results$SSE)), big.mark = ",", scientific = FALSE)`. The same months in 2025 and 2026 have similar values, so repeating last year's pattern works well. The mean forecast is too low, and naive misses the winter decrease. ETS captures the pattern but overpredicts January and February.
+
+The training SSE values shown earlier describe how well each model fitted past data. This table compares their forecasts against the five test months. A different test period could give a different best model.
