@@ -1,0 +1,56 @@
+---
+title: "Airline Passenger Decomposition"
+author: "Nihar Shah"
+date: "October 11, 2026"
+output: html_document
+---
+
+## Data
+
+```{r}
+library(forecast)
+
+airline_data <- read.csv("us_domestic_airline_enplanements_monthly.csv")
+passengers <- ts(airline_data$ENPLANED, start = c(2000, 1), frequency = 12)
+
+head(passengers)
+plot(passengers, main = "Monthly airline boardings",
+     xlab = "Year", ylab = "Thousands of boardings")
+```
+
+## STL decomposition
+
+```{r}
+stl_decomp <- stl(passengers, s.window = "periodic")
+plot(stl_decomp)
+attributes(stl_decomp)
+```
+
+## Seasonally adjusted data
+
+```{r}
+head(seasadj(stl_decomp))
+
+plot(passengers, main = "Actual and seasonally adjusted data",
+     xlab = "Year", ylab = "Thousands of boardings")
+lines(seasadj(stl_decomp), col = "red")
+legend("topleft", c("Actual", "Seasonally adjusted"),
+       col = c("black", "red"), lty = 1, bty = "n")
+```
+
+## Forecast from STL
+
+```{r}
+f_stl <- forecast(stl_decomp, h = 15)
+f_stl
+plot(f_stl, ylab = "Thousands of boardings")
+```
+
+## Classical decomposition
+
+```{r}
+decomp_airline <- decompose(passengers)
+plot(decomp_airline)
+attributes(decomp_airline)
+head(seasadj(decomp_airline))
+```
