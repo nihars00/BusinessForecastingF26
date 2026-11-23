@@ -1,0 +1,115 @@
+---
+title: "ARIMA Analysis of U.S. Domestic Airline Passenger Boardings"
+author: "Nihar Shah"
+date: "November 23, 2026"
+output: html_document
+---
+
+## Data
+
+The data contain monthly U.S. domestic airline passenger boardings, measured in **thousands**, from January 2000 through May 2026. These are passenger boardings, not counts of departing aircraft.
+
+```{r}
+library(fpp2)
+library(forecast)
+
+airline_data <- read.csv("us_domestic_airline_enplanements_monthly.csv")
+passengers <- ts(airline_data$ENPLANED, start = c(2000, 1), frequency = 12)
+
+plot(passengers, main = "U.S. Domestic Airline Passenger Boardings",
+     xlab = "Year", ylab = "Thousands of Boardings")
+passengers_no_covid <- window(passengers,
+                              start = c(2022, 1))
+
+plot(passengers_no_covid,
+     main = "Airline Passengers (2022–2026)",
+     ylab = "Thousands of Boardings",
+     xlab = "Year")
+```
+
+## 1. ARIMA Model and Output
+
+The time series is monthly, so its seasonal period is 12. The following checks examine whether nonseasonal and seasonal differencing may be needed. `auto.arima()` then selects a model automatically.
+
+```{r}
+nsdiffs(passengers_no_covid)
+ndiffs(passengers_no_covid)
+
+tsdisplay(passengers_no_covid)
+
+ARIMA_model <- auto.arima(passengers_no_covid,
+                          trace = TRUE,
+                          stepwise = FALSE)
+
+ARIMA_model
+```
+
+### ARIMA Model Output and Interpretation
+
+After excluding the COVID-19 period, auto.arima() selected ARIMA(0,1,0)(0,1,0)[12]. The model requires one regular difference and one seasonal difference to account for changes and yearly patterns in airline passenger traffic.
+
+The AICc value was 720.45, and the model is simpler than the original ARIMA model. This suggests that recent airline passenger data follow a more consistent seasonal pattern without the major disruption caused by COVID-19.
+
+## 2. Residual Analysis
+
+The residuals are the differences between actual and fitted values. A useful ARIMA model should leave residuals with no clear pattern or meaningful remaining autocorrelation.
+
+```{r}
+Acf(ARIMA_model$residuals)
+
+Box.test(residuals(ARIMA_model),
+         lag = 20,
+         type = "Ljung")
+
+plot.ts(residuals(ARIMA_model),
+        main = "ARIMA Residuals",
+        ylab = "Residuals")
+
+hist(ARIMA_model$residuals,
+     main = "Histogram of ARIMA Residuals",
+     xlab = "Residuals")
+
+tsdiag(ARIMA_model)
+```
+
+### Residual Analysis
+
+After removing the COVID-19 period, the residual analysis showed a noticeable improvement. The Ljung–Box test produced a p-value of 0.1481, which is greater than 0.05, indicating that there is no significant autocorrelation remaining in the residuals.
+
+## 3. Five-Period Forecast
+
+The final historical observation in the supplied data is May 2026. Therefore, the next **five monthly periods** are June, July, August, September, and October 2026. Following the professor's ARIMA example, the forecast is displayed with a 99.5% prediction interval.
+
+```{r}
+ARIMA_forecast <- forecast(ARIMA_model,
+                          h = 5,
+                          level = c(99.5))
+
+ARIMA_forecast
+
+plot(ARIMA_forecast)
+```
+
+### ARIMA Forecast for the Next Five Months
+
+The ARIMA model forecasts airline passenger boardings from June to October 2026. Passenger traffic is expected to increase from 75.8 million in June to 78.4 million in July, before declining to 66.9 million in September and recovering to 73.8 million in October.
+
+July is expected to have the highest passenger traffic, while September has the lowest. This follows the usual seasonal pattern of increased travel during the summer months.
+
+The 99.5% prediction intervals become wider over time, indicating greater uncertainty in longer-term forecasts. Overall, the model predicts seasonal fluctuations in airline passenger traffic.
+
+## 4. ARIMA Model Accuracy
+
+The `accuracy()` function reports error measures for the fitted ARIMA model.
+
+```{r}
+accuracy(ARIMA_model)
+```
+
+###ARIMA Model Accuracy
+
+The ARIMA model produced an RMSE of 1668.70 and an MAE of 1081.27, indicating relatively small errors in predicting airline passenger boardings.
+
+The MAPE of 1.64% shows that the model's predictions differ from actual passenger numbers by only about 1.64% on average.
+
+Overall, the model fits the historical data well, with relatively low forecasting errors. Combined with the residual analysis, these results suggest that the ARIMA model captures the patterns in airline passenger traffic reasonably well. However, these accuracy measures are based on the training data, so actual future forecasting performance may differ.
